@@ -23,8 +23,21 @@ dsh --profile daemon install --host 127.0.0.1 --port 8080 --cwd /path/to/work
 ```
 
 Defaults: `127.0.0.1:3080`, working directory `$HOME`, shared `~/.dsh`.
-`--host 0.0.0.0` is rejected (remote code execution risk); use `--trusted-host`
-for LAN access.
+`--host 0.0.0.0` is rejected (remote code execution risk).
+
+### Behind a reverse proxy
+
+The `/api` endpoints are guarded by dsh web's browser-trust fence: every
+request's `Host` header must be loopback or a declared `--trusted-host`
+authority. A reverse proxy (Traefik, nginx, Caddy) forwards the external
+`Host`, so install with that hostname:
+
+```bash
+dsh --profile daemon install --trusted-host dsh-web.example.com
+# or with an explicit port: --trusted-host dsh-web.example.com:8443
+```
+
+Repeatable, and baked into the unit like `--host`/`--port`.
 
 For the daemon to survive logout, enable lingering once:
 

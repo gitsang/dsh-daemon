@@ -11,7 +11,7 @@ function quote(arg) {
  * omitted the unit runs a bare `dsh web`, which keeps dsh's own defaults
  * (127.0.0.1:3080). `cwd` must already be resolved.
  */
-export function buildUnit({ host, port, cwd }) {
+export function buildUnit({ host, port, cwd, trustedHosts = [] }) {
   const node = resolveNode()
   const bin = resolveDshBin()
   const dshHome = resolveDshHome()
@@ -21,6 +21,7 @@ export function buildUnit({ host, port, cwd }) {
   const args = ['web']
   if (host) args.push('--host', host)
   if (port) args.push('--port', String(port))
+  for (const authority of trustedHosts) args.push('--trusted-host', authority)
   const execStart = [quote(node), quote(bin), ...args.map(quote)].join(' ')
 
   const path = [nodeBinDir(), '/usr/local/bin', '/usr/bin', '/bin'].join(':')

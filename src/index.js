@@ -20,6 +20,7 @@ export function apply(ctx) {
     .description('Write the systemd unit and enable --now')
     .option('--host <host>', 'bind host for the served web app (default: 127.0.0.1)')
     .option('--port <port>', 'listen port for the served web app (default: 3080)')
+    .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts, e.g. the reverse-proxy hostname (host or host:port; repeatable)')
     .option('--cwd <dir>', 'working directory of the daemon (default: $HOME)')
     .action((opts) => { command = { verb: 'install', opts } })
 
