@@ -1,0 +1,26 @@
+{
+  "name": "@gitsang/dsh-daemon",
+  "description": "Run the dsh web UI as a systemd --user daemon",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-cmdline": "^0.1.0-rc.6",
+    "commander": "^15.0.0"
+  }
+}

@@ -1,0 +1,8 @@
+# dsh-daemon bundle patch.
+#
+# The daemon profile is management-only: it owns install/start/stop/restart/
+# status/logs/uninstall. Serving stays in the untouched `web` profile — the
+# systemd unit's ExecStart is a plain `dsh web` (plus any baked --host/--port).
+- insert:
+    - id: daemon
+      name: '@gitsang/dsh-daemon'
