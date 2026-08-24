@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { userInfo } from 'node:os'
-import { dirname } from 'node:path'
-import { resolveUnitPath, resolveWorkingDirectory } from './paths.js'
+import { dirname, join } from 'node:path'
+import { resolveDshHome, resolveUnitPath, resolveWorkingDirectory } from './paths.js'
 import { journalctl, systemctl } from './systemctl.js'
 import { buildUnit } from './unit.js'
 
@@ -57,7 +57,7 @@ function assertTrustedHost(entry) {
 }
 
 const HANDLERS = {
-  async install({ host, port, trustedHost, cwd }) {
+  async install({ host, port, trustedHost, cwd, resumePrompt }) {
     if (host === '0.0.0.0') {
       throw new Error('--host 0.0.0.0 is not supported (remote code execution risk); use 127.0.0.1 and --trusted-host for LAN access')
     }
@@ -67,7 +67,8 @@ const HANDLERS = {
     for (const entry of trustedHost ?? []) assertTrustedHost(entry)
     const workDir = resolveWorkingDirectory(cwd)
     const unitPath = resolveUnitPath()
-    const text = buildUnit({ host, port, trustedHosts: trustedHost ?? [], cwd: workDir })
+    const effectiveResumePrompt = resumePrompt === false ? undefined : (resumePrompt ?? 'continue')
+    const text = buildUnit({ host, port, trustedHosts: trustedHost ?? [], cwd: workDir, resumePrompt: effectiveResumePrompt })
 
     mkdirSync(dirname(unitPath), { recursive: true })
     writeFileSync(unitPath, text)
@@ -83,6 +84,7 @@ const HANDLERS = {
   async uninstall() {
     await systemctl('disable', '--now', SERVICE)
     rmSync(resolveUnitPath(), { force: true })
+    rmSync(join(resolveDshHome(), 'daemon-resume.json'), { force: true })
     await must(systemctl('daemon-reload'), 'systemctl --user daemon-reload')
     process.stdout.write('dsh-daemon: uninstalled\n')
     return 0

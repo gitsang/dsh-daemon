@@ -22,6 +22,8 @@ export function apply(ctx) {
     .option('--port <port>', 'listen port for the served web app (default: 3080)')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts, e.g. the reverse-proxy hostname (host or host:port; repeatable)')
     .option('--cwd <dir>', 'working directory of the daemon (default: $HOME)')
+    .option('--resume-prompt <text>', 'after a restart, send this prompt to each previously-running session to continue it (default: continue)')
+    .option('--no-resume-prompt', 'do not send an automatic continuation prompt; only reattach sessions after restart')
     .action((opts) => { command = { verb: 'install', opts } })
 
   program.command('start').description('Start the daemon').action(() => { command = { verb: 'start' } })
