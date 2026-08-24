@@ -79,9 +79,11 @@ For the daemon to survive logout, enable lingering once:
 loginctl enable-linger
 ```
 
-## Options
+## Commands
 
 ### `dsh --profile daemon install`
+
+Write the systemd unit and enable `--now`.
 
 | Option | Description |
 | --- | --- |
@@ -92,23 +94,43 @@ loginctl enable-linger
 | `--resume-prompt <text>` | Prompt sent to each previously-running session after restart to continue it. Default: `continue`. |
 | `--no-resume-prompt` | Do not send an automatic continuation prompt; only reattach sessions after restart. |
 
+### `dsh --profile daemon start`
+
+Start the daemon.
+
+No options.
+
+### `dsh --profile daemon stop`
+
+Stop the daemon gracefully.
+
+No options.
+
+### `dsh --profile daemon restart`
+
+Restart the daemon gracefully and resume previously-running sessions.
+
+No options.
+
+### `dsh --profile daemon status`
+
+Show the daemon status.
+
+No options.
+
 ### `dsh --profile daemon logs`
+
+Show the daemon journal.
 
 | Option | Description |
 | --- | --- |
 | `-f, --follow` | Follow new journal output. |
 
-## Manage
+### `dsh --profile daemon uninstall`
 
-```bash
-dsh --profile daemon status
-dsh --profile daemon logs            # recent journal entries
-dsh --profile daemon logs -f         # follow
-dsh --profile daemon restart
-dsh --profile daemon stop
-dsh --profile daemon start
-dsh --profile daemon uninstall
-```
+Disable and remove the systemd unit.
+
+No options.
 
 Everything is a thin wrapper over `systemctl --user` / `journalctl --user`,
 so plain systemctl commands work too.
