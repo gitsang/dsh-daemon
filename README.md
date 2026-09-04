@@ -41,6 +41,80 @@ dsh --profile daemon install --trusted-host dsh-web.example.com
 
 Repeatable, and baked into the unit like `--host`/`--port`.
 
+### Using with dsh-web-auth
+
+[dsh-web-auth](https://github.com/gitsang/dsh-web-auth) is a `web`-profile
+plugin that starts a password auth reverse proxy beside `dsh web`. Since
+dsh-daemon's systemd unit runs the normal `web` profile via `dsh web`, the
+auth proxy automatically runs inside the same `dsh-daemon` service.
+
+Add it to the `web` profile:
+
+```bash
+dsh plugin --profile web add github:gitsang/dsh-web-auth
+```
+
+If dsh-daemon is already installed, restart it to load the updated `web`
+profile:
+
+```bash
+dsh --profile daemon restart
+```
+
+If this is a fresh dsh-daemon setup, follow the `dsh --profile daemon install`
+commands at the top of the Install section instead.
+
+Then use the auth proxy port instead of the raw web port:
+
+```text
+http://127.0.0.1:3081   # default raw web port 3080 + 1
+```
+
+If you installed the daemon with `--port 8080`, the auth proxy defaults to
+`8081` (unless you set `DSH_WEB_AUTH_PORT`).
+
+Keep the daemon's `--host`/`--port` pointing at the raw `dsh web` listener
+(the default `127.0.0.1:3080`). dsh-web-auth forwards to
+`127.0.0.1:<dsh web port>`, and dsh-daemon's graceful restart/resume helper
+talks to that raw listener directly — it does not go through the password
+proxy.
+
+For LAN access through dsh-web-auth, keep the raw web server loopback-only and
+let the auth proxy do the listening. First install the daemon with the
+authority browsers will use:
+
+```bash
+dsh --profile daemon install --trusted-host 192.168.1.20:3081
+# or with a hostname / a different auth proxy port:
+dsh --profile daemon install --trusted-host dsh-web.example.com:3081
+```
+
+Then make the auth proxy listen on a non-loopback address:
+
+```bash
+systemctl --user edit dsh-daemon
+```
+
+Add:
+
+```ini
+[Service]
+Environment=DSH_WEB_AUTH_HOST=0.0.0.0
+# optional, if you do not want the default "dsh web port + 1":
+# Environment=DSH_WEB_AUTH_PORT=3081
+```
+
+Apply the override:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user restart dsh-daemon
+```
+
+Now open `http://192.168.1.20:3081` (or your chosen name/port) and complete
+the password setup. See the [dsh-web-auth README](https://github.com/gitsang/dsh-web-auth)
+for more details on configuration, PWA, and security.
+
 ### Graceful restart / resume
 
 The generated unit hooks `ExecStop` and `ExecStartPost` so a restart (via
