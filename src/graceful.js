@@ -12,13 +12,19 @@
  *
  *   after-start:
  *     - waits for the web API to come back
- *     - reattaches/resumes each saved session by calling session.create
+ *     - reattaches/resumes each saved session by calling session/create
  *     - optionally sends a continuation prompt so the task can keep going
  *     - removes the state file after the pass
+ *
+ * The dsh 0.2 HTTP carrier is authenticated even on loopback. This helper
+ * therefore mints the same authority-bound browser-session cookie that dsh
+ * creates after its launch-token exchange, using the signing secret in
+ * $DSH_HOME/.credentials.yaml.
  */
-import { randomUUID } from 'node:crypto'
+import { createHash, createHmac, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
 
 const STATE_VERSION = 1
 const DEFAULT_PORT = '3080'
@@ -36,30 +42,111 @@ const host = argValue('--host') ?? '127.0.0.1'
 const port = argValue('--port') ?? DEFAULT_PORT
 const stateFile = argValue('--state')
 const resumePrompt = argValue('--resume-prompt')
+const dshHome = argValue('--dsh-home') ?? process.env.DSH_HOME ?? join(homedir(), '.dsh')
 const baseUrl = `http://${host}:${port}`
+const authority = new URL(baseUrl).host
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function rpc(method, payload, timeoutMs = 10_000) {
+function base64Url(value) {
+  return Buffer.from(value)
+    .toString('base64')
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replace(/=+$/u, '')
+}
+
+/**
+ * Read the dsh browser-session signing secret from the credentials store.
+ * The file is a small fixed YAML document owned by dsh; a dependency-free
+ * scanner avoids making this helper depend on a particular YAML package.
+ */
+function readBrowserSessionSecret() {
+  const credentialsPath = join(dshHome, '.credentials.yaml')
+  let text
+  try {
+    text = readFileSync(credentialsPath, 'utf8')
+  } catch (error) {
+    throw new Error(`cannot read dsh credentials at ${credentialsPath}: ${error?.message ?? error}`)
+  }
+
+  let inRecord = false
+  for (const line of text.split(/\r?\n/u)) {
+    if (/^  ["']?client-connection\/browser-session["']?:\s*$/u.test(line)) {
+      inRecord = true
+      continue
+    }
+    if (!inRecord) continue
+    if (/^  \S/u.test(line)) break
+    const match = /^\s+secret:\s*["']?([A-Za-z0-9_-]+)["']?(?:\s+#.*)?$/u.exec(line)
+    if (match === null) continue
+    const secret = Buffer.from(match[1], 'base64url')
+    if (secret.byteLength !== 32) throw new Error(`invalid browser-session secret in ${credentialsPath}`)
+    return secret
+  }
+
+  throw new Error(`browser-session secret not found in ${credentialsPath}; open the dsh web URL once so it is created`)
+}
+
+function browserSessionCookie() {
+  // Tests and unusual credential-provider layouts can supply a ready cookie.
+  if (process.env.DSH_DAEMON_COOKIE) return process.env.DSH_DAEMON_COOKIE
+
+  const secret = readBrowserSessionSecret()
+  const now = Date.now()
+  const payload = {
+    version: 1,
+    authority,
+    issuedAt: now - 1_000,
+    expiresAt: now + 60 * 60 * 1_000,
+  }
+  const body = base64Url(Buffer.from(JSON.stringify(payload), 'utf8'))
+  const signature = createHmac('sha256', secret).update(body).digest()
+  const name = `dsh-auth-${base64Url(createHash('sha256').update(authority).digest())}`
+  return `${name}=v1.${body}.${base64Url(signature)}`
+}
+
+/**
+ * Invoke one Typert Remote endpoint through dsh's HTTP carrier.
+ *
+ * dsh 0.2 uses slash-separated canonical endpoints (`session/list`) and wraps
+ * every invocation in `{ args: { ...wireArguments } }`. The HTTP body still
+ * uses the generic Connection envelope.
+ */
+async function rpc(endpoint, args, timeoutMs = 10_000) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const response = await fetch(`${baseUrl}/api/${method}`, {
+    const response = await fetch(`${baseUrl}/api/${endpoint}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        cookie: browserSessionCookie(),
+      },
       body: JSON.stringify({
         type: 'client-request',
         rpcId: randomUUID(),
-        method,
-        payload,
+        method: endpoint,
+        payload: { args },
       }),
       signal: controller.signal,
     })
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    const data = await response.json()
-    if (data?.type !== 'server-response') throw new Error('unexpected /api response')
+    const text = await response.text()
+    if (!response.ok) {
+      const detail = text.trim() === '' ? '' : `: ${text.trim().slice(0, 200)}`
+      throw new Error(`HTTP ${response.status} from ${endpoint}${detail}`)
+    }
+    let data
+    try {
+      data = JSON.parse(text)
+    } catch {
+      throw new Error(`unexpected non-JSON /api response from ${endpoint}`)
+    }
+    if (data?.type !== 'server-response' || typeof data.result?.ok !== 'boolean') {
+      throw new Error(`unexpected /api response from ${endpoint}`)
+    }
     return data.result
   } finally {
     clearTimeout(timer)
@@ -90,8 +177,8 @@ function writeState(sessions) {
 }
 
 async function listSessions() {
-  const result = await rpc('session.list', {}, 10_000)
-  if (!result.ok) throw new Error(result.error?.message ?? 'session.list failed')
+  const result = await rpc('session/list', { _request: {} }, 10_000)
+  if (!result.ok) throw new Error(result.error?.message ?? 'session/list failed')
   return result.value.items ?? []
 }
 
@@ -132,7 +219,7 @@ async function beforeStop() {
   const wanted = new Set(sessions.map((entry) => entry.sessionId))
   for (const entry of sessions) {
     try {
-      const result = await rpc('session.cancel', { sessionId: entry.sessionId }, 10_000)
+      const result = await rpc('session/cancel', { request: { sessionId: entry.sessionId } }, 10_000)
       if (!result.ok) {
         process.stderr.write(`dsh-daemon: graceful before-stop: cancel ${entry.sessionId} refused: ${result.error?.code ?? 'error'}: ${result.error?.message ?? ''}\n`)
       }
@@ -170,9 +257,11 @@ async function afterStart() {
     const sessionId = entry?.sessionId
     if (!sessionId) continue
     try {
-      const result = await rpc('session.create', {
-        sessionId,
-        ...(entry.cwd ? { cwd: entry.cwd } : {}),
+      const result = await rpc('session/create', {
+        request: {
+          sessionId,
+          ...(entry.cwd ? { cwd: entry.cwd } : {}),
+        },
       }, 15_000)
       if (!result.ok) {
         process.stderr.write(`dsh-daemon: graceful after-start: resume ${sessionId} refused: ${result.error?.code ?? 'error'}: ${result.error?.message ?? ''}\n`)
@@ -185,10 +274,13 @@ async function afterStart() {
 
     if (resumePrompt !== undefined && resumePrompt !== '') {
       try {
-        const result = await rpc('session.prompt', {
-          sessionId,
-          mode: 'queue',
-          content: [{ type: 'text', text: resumePrompt }],
+        const result = await rpc('session/prompt', {
+          request: {
+            requestId: randomUUID(),
+            sessionId,
+            mode: 'queue',
+            content: [{ type: 'text', text: resumePrompt }],
+          },
         }, 15_000)
         if (!result.ok) {
           process.stderr.write(`dsh-daemon: graceful after-start: continue ${sessionId} refused: ${result.error?.code ?? 'error'}: ${result.error?.message ?? ''}\n`)
@@ -206,7 +298,7 @@ async function afterStart() {
 async function main() {
   if (phase === 'before-stop') return beforeStop()
   if (phase === 'after-start') return afterStart()
-  process.stderr.write('usage: graceful.js --phase before-stop|after-start [--host H] [--port P] [--state FILE] [--resume-prompt TEXT]\n')
+  process.stderr.write('usage: graceful.js --phase before-stop|after-start [--host H] [--port P] [--state FILE] [--dsh-home DIR] [--resume-prompt TEXT]\n')
   return 2
 }
 

@@ -172,14 +172,14 @@ enough.
 The generated unit hooks `ExecStop` and `ExecStartPost` so a restart (via
 `dsh --profile daemon restart` or plain `systemctl --user restart
 dsh-daemon`) does not just SIGKILL the web process. Re-run
-`dsh --profile daemon install` after upgrading to regenerate the unit with
-these hooks:
+`dsh --profile daemon install` after upgrading dsh-daemon to regenerate the
+unit with these hooks:
 
 1. Before stopping, the daemon asks the running `dsh web` to list sessions,
    cancels every currently-running turn (keeping queued work), waits for it
    to drain/flush, and records those session ids in `~/.dsh/daemon-resume.json`.
 2. After starting, it waits for the web API to come back and reattaches each
-   saved session by calling `session.create({ sessionId, cwd })`.
+   saved session by calling `session/create` with `{ sessionId, cwd }`.
 3. After reattaching, the daemon sends `continue` to each resumed session so
    the work keeps going automatically. You can customize that prompt:
 
@@ -198,6 +198,19 @@ This is a clean pause/resume workflow: dsh's persistence does not support
 resuming an interrupted turn in the middle, so the graceful stop closes the
 active turn first (no crash-repair synthetic closers) and the saved session
 can continue with a new prompt.
+
+The helper uses the same authenticated Remote API as the web UI. Since dsh
+0.2, every `/api` request requires a browser-session cookie even on loopback,
+and Typert Remote endpoints use slash names (`session/list`,
+`session/create`, `session/prompt`) with a `{ args: { request } }` payload.
+The helper therefore mints a short-lived cookie from dsh's browser-session
+signing secret in `$DSH_HOME/.credentials.yaml`; it never needs the browser's
+session cookie or the launch URL. Upgrading from a dsh-daemon release that
+predates this fix requires reinstalling the unit:
+
+```bash
+dsh --profile daemon install
+```
 
 For the daemon to survive logout, enable lingering once:
 

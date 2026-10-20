@@ -35,9 +35,9 @@ export function buildUnit({ host, port, cwd, trustedHosts = [], resumePrompt }) 
   for (const authority of trustedHosts) args.push('--trusted-host', authority)
   const execStart = [quote(node), quote(bin), ...args.map(quote)].join(' ')
 
-  const gracefulArgs = ['--phase', 'before-stop', '--host', boundHost, '--port', boundPort, '--state', stateFile]
+  const gracefulArgs = ['--phase', 'before-stop', '--host', boundHost, '--port', boundPort, '--state', stateFile, '--dsh-home', dshHome]
   const execStop = [quote(node), quote(helper), ...gracefulArgs.map(quote)].join(' ')
-  const resumeArgs = ['--phase', 'after-start', '--host', boundHost, '--port', boundPort, '--state', stateFile]
+  const resumeArgs = ['--phase', 'after-start', '--host', boundHost, '--port', boundPort, '--state', stateFile, '--dsh-home', dshHome]
   if (resumePrompt !== undefined && resumePrompt !== '') resumeArgs.push('--resume-prompt', resumePrompt)
   const execStartPost = [quote(node), quote(helper), ...resumeArgs.map(quote)].join(' ')
 

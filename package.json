@@ -1,7 +1,7 @@
 {
   "name": "@gitsang/dsh-daemon",
   "description": "Run the dsh web UI as a systemd --user daemon",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "main": "src/index.js",
   "exports": {
@@ -22,5 +22,8 @@
   "dependencies": {
     "@deepseek-ai/dsh-cmdline": "^0.1.0-rc.6",
     "commander": "^15.0.0"
+  },
+  "scripts": {
+    "test": "node --test test/graceful.test.js"
   }
 }
