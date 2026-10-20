@@ -115,6 +115,58 @@ Now open `http://192.168.1.20:3081` (or your chosen name/port) and complete
 the password setup. See the [dsh-web-auth README](https://github.com/gitsang/dsh-web-auth)
 for more details on configuration, PWA, and security.
 
+### Outbound HTTP(S) proxy
+
+If the host needs a proxy for outbound traffic (LLM API calls, plugin
+installs, `fetch` inside sessions), put it in a **drop-in** rather than
+editing the generated unit:
+
+```bash
+systemctl --user edit dsh-daemon
+```
+
+Add:
+
+```ini
+[Service]
+Environment=NODE_USE_ENV_PROXY=1
+Environment=HTTP_PROXY=http://proxy.example.com:7890
+Environment=HTTPS_PROXY=http://proxy.example.com:7890
+Environment=NO_PROXY=localhost,127.0.0.1,::1,*.internal.example.com
+```
+
+Then apply:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user restart dsh-daemon
+```
+
+`systemctl --user edit` writes
+`~/.config/systemd/user/dsh-daemon.service.d/override.conf`, which survives
+`dsh --profile daemon install` (that only rewrites the main unit file).
+
+**`NODE_USE_ENV_PROXY=1` is required.** Node's built-in `fetch`/undici ignores
+`HTTP_PROXY` / `HTTPS_PROXY` unless that flag (or `--use-env-proxy`) is set —
+same for Node's `http`/`https` module, which uses the env vars only when the
+flag is on. Without it the daemon connects directly even though the variables
+are present in the process environment. Verified on Node 26: with the flag,
+`fetch('https://…')` goes through the proxy and `http.get` against a bogus
+proxy (`http://127.0.0.1:9`) fails with `ECONNREFUSED`; without the flag that
+same request returns `200` because nothing was proxied.
+
+Verify what the daemon actually inherited:
+
+```bash
+PID=$(systemctl --user show dsh-daemon.service -p MainPID --value)
+tr '\0' '\n' < /proc/$PID/environ | grep -i _proxy
+```
+
+Keep internal hostnames in `NO_PROXY` — proxying them only adds a hop, and if
+the proxy itself lives on one of those names it can loop back. Uppercase and
+lowercase names are both accepted by Node; setting only the uppercase pair is
+enough.
+
 ### Graceful restart / resume
 
 The generated unit hooks `ExecStop` and `ExecStartPost` so a restart (via
