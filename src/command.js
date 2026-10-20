@@ -2,9 +2,9 @@ import { spawnSync } from 'node:child_process'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { userInfo } from 'node:os'
 import { dirname, join } from 'node:path'
-import { resolveDshHome, resolveUnitPath, resolveWorkingDirectory } from './paths.js'
+import { resolveDshHome, resolveProxyDropInPath, resolveUnitPath, resolveWorkingDirectory } from './paths.js'
 import { journalctl, systemctl } from './systemctl.js'
-import { buildUnit } from './unit.js'
+import { buildProxyDropIn, buildUnit } from './unit.js'
 
 const SERVICE = 'dsh-daemon'
 
@@ -56,8 +56,31 @@ function assertTrustedHost(entry) {
   }
 }
 
+/** Validate the outbound proxy URL and reject systemd Environment injection. */
+function assertProxyUrl(proxy) {
+  let url
+  try {
+    url = new URL(proxy)
+  } catch {
+    throw new Error(`--proxy ${JSON.stringify(proxy)} is not a valid URL`)
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('--proxy must use http:// or https://')
+  }
+  if (/[\r\n\0]/u.test(proxy)) {
+    throw new Error('--proxy must not contain newlines or NUL bytes')
+  }
+}
+
+/** Validate values that will be serialized into a systemd Environment=. */
+function assertEnvironmentValue(name, value) {
+  if (/[\r\n\0]/u.test(value)) {
+    throw new Error(`${name} must not contain newlines or NUL bytes`)
+  }
+}
+
 const HANDLERS = {
-  async install({ host, port, trustedHost, cwd, resumePrompt }) {
+  async install({ host, port, trustedHost, cwd, resumePrompt, proxy, noProxy }) {
     if (host === '0.0.0.0') {
       throw new Error('--host 0.0.0.0 is not supported (remote code execution risk); use 127.0.0.1 and --trusted-host for LAN access')
     }
@@ -65,18 +88,37 @@ const HANDLERS = {
       throw new Error(`--port must be an integer in 1..65535, got ${JSON.stringify(port)}`)
     }
     for (const entry of trustedHost ?? []) assertTrustedHost(entry)
+    if (noProxy !== undefined && proxy === undefined) {
+      throw new Error('--no-proxy requires --proxy')
+    }
+    if (proxy !== undefined) assertProxyUrl(proxy)
+    if (noProxy !== undefined) assertEnvironmentValue('--no-proxy', noProxy)
+
     const workDir = resolveWorkingDirectory(cwd)
     const unitPath = resolveUnitPath()
+    const proxyDropInPath = resolveProxyDropInPath()
     const effectiveResumePrompt = resumePrompt === false ? undefined : (resumePrompt ?? 'continue')
     const text = buildUnit({ host, port, trustedHosts: trustedHost ?? [], cwd: workDir, resumePrompt: effectiveResumePrompt })
 
     mkdirSync(dirname(unitPath), { recursive: true })
     writeFileSync(unitPath, text)
 
+    if (proxy !== undefined) {
+      mkdirSync(dirname(proxyDropInPath), { recursive: true })
+      writeFileSync(proxyDropInPath, buildProxyDropIn({ proxy, noProxy }))
+    } else {
+      // The drop-in is generated state, so a reinstall without --proxy clears it.
+      rmSync(proxyDropInPath, { force: true })
+    }
+
     await must(systemctl('daemon-reload'), 'systemctl --user daemon-reload')
     await must(systemctl('enable', '--now', SERVICE), 'systemctl --user enable --now dsh-daemon')
+    // enable --now is a no-op for an already-running service; restart so the
+    // regenerated unit and proxy drop-in are actually applied.
+    await must(systemctl('try-restart', SERVICE), 'systemctl --user try-restart dsh-daemon')
 
     process.stdout.write(`dsh-daemon: installed ${unitPath}\n`)
+    if (proxy !== undefined) process.stdout.write(`dsh-daemon: configured outbound proxy in ${proxyDropInPath}\n`)
     hintLinger()
     return 0
   },
@@ -84,6 +126,7 @@ const HANDLERS = {
   async uninstall() {
     await systemctl('disable', '--now', SERVICE)
     rmSync(resolveUnitPath(), { force: true })
+    rmSync(resolveProxyDropInPath(), { force: true })
     rmSync(join(resolveDshHome(), 'daemon-resume.json'), { force: true })
     await must(systemctl('daemon-reload'), 'systemctl --user daemon-reload')
     process.stdout.write('dsh-daemon: uninstalled\n')

@@ -1,4 +1,4 @@
-import { Command } from 'commander'
+import { Command, Option } from 'commander'
 import { parseCmdline } from '@deepseek-ai/dsh-cmdline'
 import { runCommand } from './command.js'
 
@@ -7,7 +7,7 @@ export const inject = ['cmdlineArgs']
 
 /**
  * The daemon profile's command surface. Serving is deliberately NOT here: the
- * systemd unit runs the untouched `web` profile via a bare `dsh web`.
+ * systemd unit runs the untouched `web` profile via `dsh web --no-open`.
  */
 export function apply(ctx) {
   const args = ctx.get('cmdlineArgs').get()
@@ -16,12 +16,19 @@ export function apply(ctx) {
     .description('Manage the dsh web systemd --user daemon')
     .helpOption('-h, --help', 'show this help')
 
+  // Commander treats every --no-* flag as a boolean negation. This option is
+  // actually a value for NO_PROXY, so give it its own object key.
+  const noProxyOption = new Option('--no-proxy <hosts>', 'comma-separated NO_PROXY list written to the generated proxy drop-in (default: localhost,127.0.0.1,::1,*.internal.example.com; requires --proxy)')
+  noProxyOption.attributeName = () => 'noProxy'
+
   program.command('install')
-    .description('Write the systemd unit and enable --now')
+    .description('Write the systemd unit and enable --now (re-running also applies changes)')
     .option('--host <host>', 'bind host for the served web app (default: 127.0.0.1)')
     .option('--port <port>', 'listen port for the served web app (default: 3080)')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts, e.g. the reverse-proxy hostname (host or host:port; repeatable)')
     .option('--cwd <dir>', 'working directory of the daemon (default: $HOME)')
+    .option('--proxy <url>', 'outbound HTTP(S) proxy URL; writes dsh-daemon.service.d/proxy.conf with NODE_USE_ENV_PROXY/HTTP_PROXY/HTTPS_PROXY')
+    .addOption(noProxyOption)
     .option('--resume-prompt <text>', 'after a restart, send this prompt to each previously-running session to continue it (default: continue)')
     .option('--no-resume-prompt', 'do not send an automatic continuation prompt; only reattach sessions after restart')
     .action((opts) => { command = { verb: 'install', opts } })
@@ -34,7 +41,7 @@ export function apply(ctx) {
     .description('Show the daemon journal')
     .option('-f, --follow', 'follow new output')
     .action((opts) => { command = { verb: 'logs', opts } })
-  program.command('uninstall').description('Disable and remove the systemd unit').action(() => { command = { verb: 'uninstall' } })
+  program.command('uninstall').description('Disable and remove the systemd unit and generated proxy drop-in').action(() => { command = { verb: 'uninstall' } })
 
   let command
 

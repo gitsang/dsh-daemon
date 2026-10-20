@@ -2,8 +2,9 @@
 
 Run the DeepSeek Harness web UI (`dsh web`) as a **systemd `--user`** daemon.
 
-The `web` profile is left untouched — the unit's `ExecStart` is a plain
-`dsh web`. A separate, management-only `daemon` profile hosts this plugin and
+The `web` profile is left untouched — the unit's `ExecStart` is
+`dsh web --no-open`, so starting the daemon does not launch a browser. A
+separate, management-only `daemon` profile hosts this plugin and
 owns `install` / `start` / `stop` / `restart` / `status` / `logs` / `uninstall`.
 
 ## Install
@@ -16,213 +17,13 @@ dsh plugin --profile daemon add @gitsang/dsh-daemon
 dsh --profile daemon install
 ```
 
-Optional overrides, baked into the unit:
-
-```bash
-dsh --profile daemon install --host 127.0.0.1 --port 8080 --cwd /path/to/work
-# optional: customize the auto-continue prompt (default is "continue")
-dsh --profile daemon install --resume-prompt "继续"
-```
-
-Defaults: `127.0.0.1:3080`, working directory `$HOME`, shared `~/.dsh`.
-`--host 0.0.0.0` is rejected (remote code execution risk).
-
-### Behind a reverse proxy
-
-The `/api` endpoints are guarded by dsh web's browser-trust fence: every
-request's `Host` header must be loopback or a declared `--trusted-host`
-authority. A reverse proxy (Traefik, nginx, Caddy) forwards the external
-`Host`, so install with that hostname:
-
-```bash
-dsh --profile daemon install --trusted-host dsh-web.example.com
-# or with an explicit port: --trusted-host dsh-web.example.com:8443
-```
-
-Repeatable, and baked into the unit like `--host`/`--port`.
-
-### Using with dsh-web-auth
-
-[dsh-web-auth](https://github.com/gitsang/dsh-web-auth) is a `web`-profile
-plugin that starts a password auth reverse proxy beside `dsh web`. Since
-dsh-daemon's systemd unit runs the normal `web` profile via `dsh web`, the
-auth proxy automatically runs inside the same `dsh-daemon` service.
-
-Add it to the `web` profile:
-
-```bash
-dsh plugin --profile web add github:gitsang/dsh-web-auth
-```
-
-If dsh-daemon is already installed, restart it to load the updated `web`
-profile:
-
-```bash
-dsh --profile daemon restart
-```
-
-If this is a fresh dsh-daemon setup, follow the `dsh --profile daemon install`
-commands at the top of the Install section instead.
-
-Then use the auth proxy port instead of the raw web port:
-
-```text
-http://127.0.0.1:3081   # default raw web port 3080 + 1
-```
-
-If you installed the daemon with `--port 8080`, the auth proxy defaults to
-`8081` (unless you set `DSH_WEB_AUTH_PORT`).
-
-Keep the daemon's `--host`/`--port` pointing at the raw `dsh web` listener
-(the default `127.0.0.1:3080`). dsh-web-auth forwards to
-`127.0.0.1:<dsh web port>`, and dsh-daemon's graceful restart/resume helper
-talks to that raw listener directly — it does not go through the password
-proxy.
-
-For LAN access through dsh-web-auth, keep the raw web server loopback-only and
-let the auth proxy do the listening. First install the daemon with the
-authority browsers will use:
-
-```bash
-dsh --profile daemon install --trusted-host 192.168.1.20:3081
-# or with a hostname / a different auth proxy port:
-dsh --profile daemon install --trusted-host dsh-web.example.com:3081
-```
-
-Then make the auth proxy listen on a non-loopback address:
-
-```bash
-systemctl --user edit dsh-daemon
-```
-
-Add:
-
-```ini
-[Service]
-Environment=DSH_WEB_AUTH_HOST=0.0.0.0
-# optional, if you do not want the default "dsh web port + 1":
-# Environment=DSH_WEB_AUTH_PORT=3081
-```
-
-Apply the override:
-
-```bash
-systemctl --user daemon-reload
-systemctl --user restart dsh-daemon
-```
-
-Now open `http://192.168.1.20:3081` (or your chosen name/port) and complete
-the password setup. See the [dsh-web-auth README](https://github.com/gitsang/dsh-web-auth)
-for more details on configuration, PWA, and security.
-
-### Outbound HTTP(S) proxy
-
-If the host needs a proxy for outbound traffic (LLM API calls, plugin
-installs, `fetch` inside sessions), put it in a **drop-in** rather than
-editing the generated unit:
-
-```bash
-systemctl --user edit dsh-daemon
-```
-
-Add:
-
-```ini
-[Service]
-Environment=NODE_USE_ENV_PROXY=1
-Environment=HTTP_PROXY=http://proxy.example.com:7890
-Environment=HTTPS_PROXY=http://proxy.example.com:7890
-Environment=NO_PROXY=localhost,127.0.0.1,::1,*.internal.example.com
-```
-
-Then apply:
-
-```bash
-systemctl --user daemon-reload
-systemctl --user restart dsh-daemon
-```
-
-`systemctl --user edit` writes
-`~/.config/systemd/user/dsh-daemon.service.d/override.conf`, which survives
-`dsh --profile daemon install` (that only rewrites the main unit file).
-
-**`NODE_USE_ENV_PROXY=1` is required.** Node's built-in `fetch`/undici ignores
-`HTTP_PROXY` / `HTTPS_PROXY` unless that flag (or `--use-env-proxy`) is set —
-same for Node's `http`/`https` module, which uses the env vars only when the
-flag is on. Without it the daemon connects directly even though the variables
-are present in the process environment. Verified on Node 26: with the flag,
-`fetch('https://…')` goes through the proxy and `http.get` against a bogus
-proxy (`http://127.0.0.1:9`) fails with `ECONNREFUSED`; without the flag that
-same request returns `200` because nothing was proxied.
-
-Verify what the daemon actually inherited:
-
-```bash
-PID=$(systemctl --user show dsh-daemon.service -p MainPID --value)
-tr '\0' '\n' < /proc/$PID/environ | grep -i _proxy
-```
-
-Keep internal hostnames in `NO_PROXY` — proxying them only adds a hop, and if
-the proxy itself lives on one of those names it can loop back. Uppercase and
-lowercase names are both accepted by Node; setting only the uppercase pair is
-enough.
-
-### Graceful restart / resume
-
-The generated unit hooks `ExecStop` and `ExecStartPost` so a restart (via
-`dsh --profile daemon restart` or plain `systemctl --user restart
-dsh-daemon`) does not just SIGKILL the web process. Re-run
-`dsh --profile daemon install` after upgrading dsh-daemon to regenerate the
-unit with these hooks:
-
-1. Before stopping, the daemon asks the running `dsh web` to list sessions,
-   cancels every currently-running turn (keeping queued work), waits for it
-   to drain/flush, and records those session ids in `~/.dsh/daemon-resume.json`.
-2. After starting, it waits for the web API to come back and reattaches each
-   saved session by calling `session/create` with `{ sessionId, cwd }`.
-3. After reattaching, the daemon sends `continue` to each resumed session so
-   the work keeps going automatically. You can customize that prompt:
-
-```bash
-dsh --profile daemon install --resume-prompt "继续"
-```
-
-If you only want to restore the sessions and then start them again manually
-from the UI/TUI, install with `--no-resume-prompt`:
-
-```bash
-dsh --profile daemon install --no-resume-prompt
-```
-
-This is a clean pause/resume workflow: dsh's persistence does not support
-resuming an interrupted turn in the middle, so the graceful stop closes the
-active turn first (no crash-repair synthetic closers) and the saved session
-can continue with a new prompt.
-
-The helper uses the same authenticated Remote API as the web UI. Since dsh
-0.2, every `/api` request requires a browser-session cookie even on loopback,
-and Typert Remote endpoints use slash names (`session/list`,
-`session/create`, `session/prompt`) with a `{ args: { request } }` payload.
-The helper therefore mints a short-lived cookie from dsh's browser-session
-signing secret in `$DSH_HOME/.credentials.yaml`; it never needs the browser's
-session cookie or the launch URL. Upgrading from a dsh-daemon release that
-predates this fix requires reinstalling the unit:
-
-```bash
-dsh --profile daemon install
-```
-
-For the daemon to survive logout, enable lingering once:
-
-```bash
-loginctl enable-linger
-```
+For more installation options, see the [Commands/install](#dsh---profile-daemon-install) section.
 
 ## Commands
 
 ### `dsh --profile daemon install`
 
-Write the systemd unit and enable `--now`.
+Write the systemd unit and enable `--now`. Re-running `install` applies the updated unit and proxy drop-in.
 
 | Option | Description |
 | --- | --- |
@@ -230,8 +31,18 @@ Write the systemd unit and enable `--now`.
 | `--port <port>` | Listen port for the served web app. Default: `3080`. Must be an integer in `1..65535`. |
 | `--trusted-host <authority...>` | Extra authority the `/api` browser-trust fence accepts (`host` or `host:port`). Repeatable. |
 | `--cwd <dir>` | Working directory of the daemon. Default: `$HOME`. |
+| `--proxy <url>` | Outbound HTTP(S) proxy. Writes `~/.config/systemd/user/dsh-daemon.service.d/proxy.conf` with `NODE_USE_ENV_PROXY=1`, `HTTP_PROXY`, and `HTTPS_PROXY`. |
+| `--no-proxy <hosts>` | Comma-separated `NO_PROXY` list written to the same proxy drop-in. Default: `localhost,127.0.0.1,::1,*.internal.example.com`. Requires `--proxy`. |
 | `--resume-prompt <text>` | Prompt sent to each previously-running session after restart to continue it. Default: `continue`. |
 | `--no-resume-prompt` | Do not send an automatic continuation prompt; only reattach sessions after restart. |
+
+Reinstalling without `--proxy` removes the generated proxy drop-in. For example:
+
+```bash
+dsh --profile daemon install \
+  --proxy http://proxy.example.com:7890 \
+  --no-proxy localhost,127.0.0.1,::1,*.corp.example.com
+```
 
 ### `dsh --profile daemon start`
 
@@ -267,7 +78,7 @@ Show the daemon journal.
 
 ### `dsh --profile daemon uninstall`
 
-Disable and remove the systemd unit.
+Disable and remove the systemd unit and generated proxy drop-in.
 
 No options.
 

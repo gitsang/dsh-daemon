@@ -24,6 +24,6 @@
     "commander": "^15.0.0"
   },
   "scripts": {
-    "test": "node --test test/graceful.test.js"
+    "test": "node --test test/*.test.js"
   }
 }

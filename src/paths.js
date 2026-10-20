@@ -31,6 +31,12 @@ export function resolveUnitPath() {
   return join(configHome, 'systemd', 'user', 'dsh-daemon.service')
 }
 
+/** Where the generated proxy drop-in for the user-scope unit lives. */
+export function resolveProxyDropInPath() {
+  const configHome = process.env.XDG_CONFIG_HOME || join(homedir(), '.config')
+  return join(configHome, 'systemd', 'user', 'dsh-daemon.service.d', 'proxy.conf')
+}
+
 /** Resolve and validate the daemon's working directory (defaults to $HOME). */
 export function resolveWorkingDirectory(cwd) {
   if (!cwd) return homedir()
