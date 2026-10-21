@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { buildProxyDropIn, buildUnit } from '../src/unit.js'
 
@@ -37,4 +38,10 @@ test('generated unit starts dsh web without opening a browser', () => {
   const text = buildUnit({ cwd: '/tmp' })
 
   assert.match(text, /^ExecStart=.*"web" "--no-open"$/mu)
+})
+
+test('daemon row stays dormant outside the daemon profile', () => {
+  const patch = readFileSync(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
+
+  assert.match(patch, /disabled: !!js "ctx\.get\('profileContext'\)\?\.name !== 'daemon'"/u)
 })

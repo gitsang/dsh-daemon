@@ -3,6 +3,11 @@
 # The daemon profile is management-only: it owns install/start/stop/restart/
 # status/logs/uninstall. Serving stays in the untouched `web` profile — the
 # systemd unit's ExecStart is `dsh web --no-open` (plus any baked --host/--port).
+#
+# Installing this bundle in another profile too (for example to show it on the
+# Web Plugins page) is safe: the daemon command row is disabled unless the
+# profile is named `daemon`, so it cannot claim that app's command line.
 - insert:
     - id: daemon
       name: '@gitsang/dsh-daemon'
+      disabled: !!js "ctx.get('profileContext')?.name !== 'daemon'"

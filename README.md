@@ -19,6 +19,24 @@ dsh --profile daemon install
 
 For more installation options, see the [Commands/install](#dsh---profile-daemon-install) section.
 
+### Show it on the Web Plugins page
+
+The Web Plugins page only reads the profile the web server is currently
+running, so a bundle installed in the `daemon` profile is not visible there.
+Install the same package into the `web` profile as well:
+
+```bash
+dsh plugin --profile web add @gitsang/dsh-daemon
+
+# if the web UI runs as the dsh-daemon service, apply the new composition
+dsh --profile daemon restart
+```
+
+Outside the `daemon` profile the bundle's only row is disabled, so it does not
+parse or claim the web app's command line. It appears under **Plugins →
+Installed plugins** as a normal bundle; management commands still belong to
+`dsh --profile daemon ...`.
+
 ## Commands
 
 ### `dsh --profile daemon install`
