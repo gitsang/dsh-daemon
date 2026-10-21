@@ -2,10 +2,13 @@
 
 Run the DeepSeek Harness web UI (`dsh web`) as a **systemd `--user`** daemon.
 
-The `web` profile is left untouched — the unit's `ExecStart` is
+The served web composition is untouched — the unit's `ExecStart` is
 `dsh web --no-open`, so starting the daemon does not launch a browser. A
-separate, management-only `daemon` profile hosts this plugin and
-owns `install` / `start` / `stop` / `restart` / `status` / `logs` / `uninstall`.
+separate `daemon` profile hosts the management CLI:
+`install` / `start` / `stop` / `restart` / `status` / `logs` / `uninstall`.
+Installing the same bundle in the `web` profile adds a **Daemon** page under
+Settings, which can send the lifecycle commands and read the journal from the
+browser.
 
 ## Install
 
@@ -19,11 +22,10 @@ dsh --profile daemon install
 
 For more installation options, see the [Commands/install](#dsh---profile-daemon-install) section.
 
-### Show it on the Web Plugins page
+### Web control from Settings
 
-The Web Plugins page only reads the profile the web server is currently
-running, so a bundle installed in the `daemon` profile is not visible there.
-Install the same package into the `web` profile as well:
+The settings page is served by the `web` profile, so the bundle must be
+installed there as well:
 
 ```bash
 dsh plugin --profile web add @gitsang/dsh-daemon
@@ -32,10 +34,17 @@ dsh plugin --profile web add @gitsang/dsh-daemon
 dsh --profile daemon restart
 ```
 
-Outside the `daemon` profile the bundle's only row is disabled, so it does not
-parse or claim the web app's command line. It appears under **Plugins →
-Installed plugins** as a normal bundle; management commands still belong to
-`dsh --profile daemon ...`.
+Settings then has a **Daemon** page with the unit's state, main PID, memory,
+start time, unit path, proxy state, and recent `journalctl` output. **Start**,
+**Stop**, and **Restart** submit the same systemd user jobs as the CLI; stopping
+or restarting interrupts the page when this web UI is served by that unit.
+
+Outside the `daemon` profile the bundle's host half registers authenticated
+`/api/dsh-daemon/status|action|logs` routes and the browser half renders the
+settings page, while the command-line parser stays dormant so it never claims
+the web app's command line. The routes accept only `start`, `stop`, and
+`restart`; there is no generic shell command endpoint. Management CLI commands
+still belong to `dsh --profile daemon ...`.
 
 ## Commands
 

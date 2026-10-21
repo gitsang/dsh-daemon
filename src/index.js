@@ -1,6 +1,7 @@
 import { Command, Option } from 'commander'
 import { parseCmdline } from '@deepseek-ai/dsh-cmdline'
 import { runCommand } from './command.js'
+import { registerDaemonRoutes } from './web.js'
 
 export const name = 'daemon'
 export const inject = ['cmdlineArgs']
@@ -10,6 +11,16 @@ export const inject = ['cmdlineArgs']
  * systemd unit runs the untouched `web` profile via `dsh web --no-open`.
  */
 export function apply(ctx) {
+  // The same bundle serves two roles. In a Web profile the host half exposes
+  // authenticated lifecycle routes and the browser half renders the settings
+  // page. Only the `daemon` profile owns the command line and its verbs.
+  ctx.inject(['connection'], (connectionCtx) => {
+    registerDaemonRoutes(connectionCtx)
+  })
+
+  const profileName = ctx.get('profileContext')?.name
+  if (profileName !== undefined && profileName !== 'daemon') return
+
   const args = ctx.get('cmdlineArgs').get()
 
   const program = new Command('dsh --profile daemon')

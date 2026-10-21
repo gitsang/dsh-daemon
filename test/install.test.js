@@ -40,8 +40,9 @@ test('generated unit starts dsh web without opening a browser', () => {
   assert.match(text, /^ExecStart=.*"web" "--no-open"$/mu)
 })
 
-test('daemon row stays dormant outside the daemon profile', () => {
+test('bundle patch inserts the row shared by daemon and web profiles', () => {
   const patch = readFileSync(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
 
-  assert.match(patch, /disabled: !!js "ctx\.get\('profileContext'\)\?\.name !== 'daemon'"/u)
+  assert.match(patch, /- id: daemon\n\s+name: '@gitsang\/dsh-daemon'/u)
+  assert.doesNotMatch(patch, /disabled:/u)
 })
