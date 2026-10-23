@@ -6,9 +6,9 @@ The served web composition is untouched — the unit's `ExecStart` is
 `dsh web --no-open`, so starting the daemon does not launch a browser. A
 separate `daemon` profile hosts the management CLI:
 `install` / `start` / `stop` / `restart` / `status` / `logs` / `uninstall`.
-Installing the same bundle in the `web` profile adds a **Daemon** page under
-Settings, which can send the lifecycle commands and read the journal from the
-browser.
+Installing the same bundle in the `web` profile adds a **Daemon**
+configuration page on its own row under **Plugins → @gitsang/dsh-daemon**,
+which can send the lifecycle commands and read the journal from the browser.
 
 ## Install
 
@@ -22,9 +22,9 @@ dsh --profile daemon install
 
 For more installation options, see the [Commands/install](#dsh---profile-daemon-install) section.
 
-### Web control from Settings
+### Web control from Plugins
 
-The settings page is served by the `web` profile, so the bundle must be
+The configuration page is served by the `web` profile, so the bundle must be
 installed there as well:
 
 ```bash
@@ -34,14 +34,15 @@ dsh plugin --profile web add @gitsang/dsh-daemon
 dsh --profile daemon restart
 ```
 
-Settings then has a **Daemon** page with the unit's state, main PID, memory,
-start time, unit path, proxy state, and recent `journalctl` output. **Start**,
-**Stop**, and **Restart** submit the same systemd user jobs as the CLI; stopping
-or restarting interrupts the page when this web UI is served by that unit.
+**Plugins → @gitsang/dsh-daemon → Daemon → Configure** then shows the unit's
+state, main PID, memory, start time, unit path, proxy state, and recent
+`journalctl` output. **Start**, **Stop**, and **Restart** submit the same
+systemd user jobs as the CLI; stopping or restarting interrupts the page when
+this web UI is served by that unit.
 
 Outside the `daemon` profile the bundle's host half registers authenticated
 `/api/dsh-daemon/status|action|logs` routes and the browser half renders the
-settings page, while the command-line parser stays dormant so it never claims
+plugin configuration page, while the command-line parser stays dormant so it never claims
 the web app's command line. The routes accept only `start`, `stop`, and
 `restart`; there is no generic shell command endpoint. Management CLI commands
 still belong to `dsh --profile daemon ...`.

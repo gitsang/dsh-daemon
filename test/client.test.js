@@ -24,9 +24,12 @@ const client = factory((specifier) => {
       useState: (value) => [value, () => {}],
     }
   }
+  if (specifier === '@deepseek-ai/dsh-client-ui-primitives') {
+    return { Button: () => null }
+  }
   throw new Error(`unexpected require ${specifier}`)
 })
-const { apiUrl, formatBytes, formatTimestamp, stateKey } = client.__test
+const { apiUrl, formatBytes, formatTimestamp, stateKey, ROW_KEY } = client.__test
 
 test('API paths stay relative for reverse-proxy prefix compatibility', () => {
   assert.equal(apiUrl('status'), 'api/dsh-daemon/status')
@@ -52,7 +55,7 @@ test('systemd states map to localized labels', () => {
   assert.equal(stateKey('something-new'), 'stateUnknown')
 })
 
-test('apply registers the Daemon settings section and dictionaries', () => {
+test('apply registers the Daemon row configuration page and dictionaries', () => {
   const events = []
   const ctx = {
     effect(fn, name) {
@@ -83,11 +86,10 @@ test('apply registers the Daemon settings section and dictionaries', () => {
   client.apply(ctx)
 
   assert.deepEqual(events.find((event) => event[0] === 'locale'), ['locale', 'daemon', ['en', 'zh']])
-  assert.deepEqual(events.find((event) => event[0] === 'inject'), ['inject', 'settings.section'])
+  assert.deepEqual(events.find((event) => event[0] === 'inject'), ['inject', 'plugins.row.config'])
   const registration = events.find((event) => event[0] === 'register')[1]
-  assert.equal(registration.name, 'settings.section')
-  assert.equal(registration.id, 'daemon')
-  assert.equal(registration.order, 18)
+  assert.equal(registration.name, 'plugins.row.config')
+  assert.equal(registration.key, '@gitsang/dsh-daemon#daemon')
+  assert.equal(registration.key, ROW_KEY)
   assert.equal(registration.locale, 'daemon')
-  assert.equal(registration.label(), 'daemon:nav')
 })
