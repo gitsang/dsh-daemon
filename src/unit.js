@@ -1,7 +1,6 @@
 import { homedir } from 'node:os'
-import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { nodeBinDir, resolveDshBin, resolveDshHome, resolveNode } from './paths.js'
+import { nodeBinDir, resolveDshBin, resolveDshHome, resolveNode, resolveStatePath } from './paths.js'
 
 /** systemd ExecStart argument quoting: wrap in double quotes, escape \ and ". */
 function quote(arg) {
@@ -36,7 +35,7 @@ export function buildUnit({ host, port, cwd, trustedHosts = [], resumePrompt }) 
   const home = homedir()
   const workDir = cwd ?? home
   const helper = gracefulHelperPath()
-  const stateFile = join(dshHome, 'daemon-resume.json')
+  const stateFile = resolveStatePath(dshHome)
   const boundHost = host ?? '127.0.0.1'
   const boundPort = String(port ?? 3080)
 

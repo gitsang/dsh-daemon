@@ -22,7 +22,7 @@
  * $DSH_HOME/.credentials.yaml.
  */
 import { createHash, createHmac, randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -153,7 +153,26 @@ async function rpc(endpoint, args, timeoutMs = 10_000) {
   }
 }
 
+/**
+ * Move the pre-0.2.1 flat state file into the daemon data directory once, so
+ * an upgrade mid-restart (old before-stop wrote it, new after-start reads it)
+ * still resumes the recorded sessions. The current file always wins.
+ */
+function adoptLegacyState() {
+  if (!stateFile) return
+  const legacy = join(dshHome, 'daemon-resume.json')
+  if (legacy === stateFile) return
+  try {
+    if (existsSync(stateFile) || !existsSync(legacy)) return
+    mkdirSync(dirname(stateFile), { recursive: true })
+    renameSync(legacy, stateFile)
+  } catch {
+    // Non-fatal: the legacy file stays in place and can be inspected by hand.
+  }
+}
+
 function readState() {
+  adoptLegacyState()
   try {
     const parsed = JSON.parse(readFileSync(stateFile, 'utf8'))
     if (parsed?.version !== STATE_VERSION || !Array.isArray(parsed.sessions)) return null

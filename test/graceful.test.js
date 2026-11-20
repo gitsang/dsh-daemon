@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -85,7 +85,8 @@ function runHelper(args) {
 test('after-start authenticates and uses dsh 0.2 Remote endpoints', async () => {
   const secret = Buffer.from('0123456789abcdef0123456789abcdef')
   const dshHome = makeDshHome(secret)
-  const stateFile = join(dshHome, 'daemon-resume.json')
+  const stateFile = join(dshHome, 'daemon', 'resume.json')
+  mkdirSync(join(dshHome, 'daemon'), { recursive: true })
   writeFileSync(stateFile, JSON.stringify({
     version: 1,
     savedAt: new Date().toISOString(),
@@ -145,10 +146,53 @@ test('after-start authenticates and uses dsh 0.2 Remote endpoints', async () => 
   }
 })
 
+test('after-start adopts the pre-0.2.1 flat state file written by an older before-stop', async () => {
+  const secret = Buffer.from('00112233445566778899aabbccddeeff')
+  const dshHome = makeDshHome(secret)
+  // The old helper wrote a flat file; the new unit passes the directory path.
+  const legacyFile = join(dshHome, 'daemon-resume.json')
+  const stateFile = join(dshHome, 'daemon', 'resume.json')
+  writeFileSync(legacyFile, JSON.stringify({
+    version: 1,
+    savedAt: new Date().toISOString(),
+    sessions: [{ sessionId: 'session-cccccccc-cccc-4ccc-8ccc-cccccccccccc', cwd: '/tmp' }],
+  }))
+
+  const calls = []
+  const { server, port } = await listen(async (request, response) => {
+    const body = JSON.parse(await readBody(request))
+    calls.push(body.method)
+    verifyCookie(request.headers.cookie, secret)
+    let result
+    if (body.method === 'session/list') result = { ok: true, value: { items: [] } }
+    else if (body.method === 'session/create') result = { ok: true, value: { sessionId: body.payload.args.request.sessionId } }
+    else assert.fail(`unexpected method ${body.method}`)
+    response.writeHead(200, { 'content-type': 'application/json' })
+    response.end(JSON.stringify({ type: 'server-response', rpcId: body.rpcId, result }))
+  })
+
+  try {
+    const run = await runHelper([
+      '--phase', 'after-start',
+      '--host', '127.0.0.1',
+      '--port', String(port),
+      '--state', stateFile,
+      '--dsh-home', dshHome,
+    ])
+    assert.equal(run.code, 0, run.stderr)
+    assert.deepEqual(calls, ['session/list', 'session/create'])
+    assert.equal(existsSync(legacyFile), false)
+    assert.equal(existsSync(stateFile), false)
+  } finally {
+    server.close()
+    rmSync(dshHome, { recursive: true, force: true })
+  }
+})
+
 test('before-stop cancels running turns and records resumable sessions', async () => {
   const secret = Buffer.from('fedcba9876543210fedcba9876543210')
   const dshHome = makeDshHome(secret)
-  const stateFile = join(dshHome, 'daemon-resume.json')
+  const stateFile = join(dshHome, 'daemon', 'resume.json')
   let listCalls = 0
   const calls = []
   const { server, port } = await listen(async (request, response) => {

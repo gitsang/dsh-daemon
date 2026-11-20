@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { userInfo } from 'node:os'
-import { dirname, join } from 'node:path'
-import { resolveDshHome, resolveProxyDropInPath, resolveUnitPath, resolveWorkingDirectory } from './paths.js'
+import { dirname } from 'node:path'
+import { resolveLegacyStatePath, resolveProxyDropInPath, resolveStatePath, resolveUnitPath, resolveWorkingDirectory } from './paths.js'
 import { journalctl, systemctl } from './systemctl.js'
 import { buildProxyDropIn, buildUnit } from './unit.js'
 
@@ -127,7 +127,8 @@ const HANDLERS = {
     await systemctl('disable', '--now', SERVICE)
     rmSync(resolveUnitPath(), { force: true })
     rmSync(resolveProxyDropInPath(), { force: true })
-    rmSync(join(resolveDshHome(), 'daemon-resume.json'), { force: true })
+    rmSync(resolveStatePath(), { force: true })
+    rmSync(resolveLegacyStatePath(), { force: true })
     await must(systemctl('daemon-reload'), 'systemctl --user daemon-reload')
     process.stdout.write('dsh-daemon: uninstalled\n')
     return 0

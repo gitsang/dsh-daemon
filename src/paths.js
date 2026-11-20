@@ -25,6 +25,19 @@ export function resolveDshHome() {
   return process.env.DSH_HOME || join(homedir(), '.dsh')
 }
 
+/**
+ * Daemon-owned state lives in one directory under the harness home, matching
+ * the official per-plugin data layout (e.g. speech-to-text/).
+ */
+export function resolveStatePath(dshHome = resolveDshHome()) {
+  return join(dshHome, 'daemon', 'resume.json')
+}
+
+/** Pre-0.2.1 flat state file in the harness home; migrated on first read. */
+export function resolveLegacyStatePath(dshHome = resolveDshHome()) {
+  return join(dshHome, 'daemon-resume.json')
+}
+
 /** Where the user-scope systemd unit lives. */
 export function resolveUnitPath() {
   const configHome = process.env.XDG_CONFIG_HOME || join(homedir(), '.config')
